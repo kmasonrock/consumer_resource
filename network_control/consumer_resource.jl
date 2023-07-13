@@ -18,38 +18,6 @@ include("/Users/kmrock/Documents/network_control_project/network_control/network
 
 # function consumer_resource(du,u,p,t)
 
-
-
-# end
-
-#g = niche_model_graph(25,3.85)
-
-# for i in 1:25
-
-#     if outdegree(g,i) == 0
-#         set_props!(g,i,Dict(:is_basal => true))
-#     else
-#         set_props!(g,i,Dict(:is_basal => false))
-#     end
-
-# end
-
-global n_nodes = 25
-
-# function condition(out,u,t,integrator)
-#     for i in 1:n_nodes
-#         out[i] = u[i] - 1e-10
-#     end
-# end
-
-# function affect!(integrator, idx)
-#     for id in idx
-#         integrator.u[id] = 0
-#     end
-# end
-
-# cb = VectorContinuousCallback(condition, affect!, n_nodes)
-
 function get_assim_eff(g, herb, carn)
     basal = findall(x->x==0, indegree(g))
 
@@ -81,7 +49,6 @@ end
 
 function get_trophic(g)
 
-
     copy_g = SimpleDiGraph(copy(g))
 
     self_loops = simplecycles_limited_length(copy_g,1)
@@ -111,97 +78,101 @@ function F_ij(Ω,ω,h,B,g,i,j)
 end
 
 
-pars = @parameters t
-
-vars = Symbolics.@variables B[1:n_nodes](t), M[1:n_nodes^2](t)
-
-D = Differential(t)
-
-global g = niche_model_graph(n_nodes,1.5)
-
-d_eqs = [Bi for Bi in B]
-
-d_eqs = D.(d_eqs)
-
-dxdr = 0.88 # = vertibrates, 0.314 = invertibrates, 0.597 = both
-
-#y = 4 # = vertibrates, 8 = invertibrates, 6 = both
-
-#x_test = dxdr*(Z.^(get_trophic(g) .- 1)).^-0.25
-
-ω = 0.05
-
-Z = 10
-
-rhs = []
-
-x = dxdr*(Z.^(get_trophic(g) .- 1)).^(-0.25)
-y = 4
-h = 1.2
-
-Ω = get_Ω(g)
-e = get_assim_eff(g,0.45,0.85)
-
-for i in 1:n_nodes
-    
-    prey = inneighbors(g,i)
-    predators = outneighbors(g,i)
-    if indegree(g,i) == 0
-
-        append!(rhs, (1-max(B[i],0))*max(B[i],0) - (sum([x[j]*y*max(B[j],0)*F_ij(Ω,ω,h,B,g,j,i)/e[j,i] for j in predators])))
-    else
-        if predators == []
-            append!(rhs, -x[i].*max(B[i],0) + (sum([x[i]*y*max(B[i],0)*F_ij(Ω,ω,h,B,g,i,j) for j in prey])))
-        else
-            append!(rhs, -x[i].*max(B[i],0) + (sum([x[i]*y*max(B[i],0)*F_ij(Ω,ω,h,B,g,i,j) for j in prey])) - (sum([x[j]*y*max(B[j],0)*F_ij(Ω,ω,h,B,g,j,i)/e[j,i] for j in predators])))
-        end
-    end
+function get_x(dxdr,Z,m,trophic)
+    return dxdr*(Z.^(trophic .- 1)).^m
 end
 
-eqs = d_eqs .~ rhs
+function consumer_resource(n_nodes,β,dxdr,Z,m,y,h,ω,herb,carn)
+    pars = @parameters t
+    vars = Symbolics.@variables B[1:n_nodes](t)
+    graph_failed = true
 
-init_B = [get_prop(g,i,:B) for i in vertices(g)]
+    while graph_failed
+        try
+            global g = niche_model_graph(n_nodes,β)
+            global x = get_x(dxdr,Z,m,get_trophic(g))
+            graph_failed = false
+            println("Graph is generated")
+        catch
+            println("Failed to generate. Trying again...")
+            graph_failed = true
+        end
+    end
+    
+    Ω = get_Ω(g)
+    e = get_assim_eff(g,herb,carn)
+    D = Differential(t)
 
-@named sys = ODESystem(eqs)
+    d_eqs = [Bi for Bi in B]
 
-# init_params = [Ω => get_Ω(g),e => get_assim_eff(g,0.45,0.85),x => dxdr*(Z.^(get_trophic(g) .-1)).^(-0.25),y => 4,h => 1.2, ω => 0.05]
+    d_eqs = D.(d_eqs)
+    rhs = []
+    for i in 1:n_nodes
+    
+        prey = inneighbors(g,i)
+        predators = outneighbors(g,i)
+        if indegree(g,i) == 0
+    
+            append!(rhs, (1-max(B[i],0))*max(B[i],0) - (sum([x[j]*y*max(B[j],0)*F_ij(Ω,ω,h,B,g,j,i)/e[j,i] for j in predators])))
+        else
+            if predators == []
+                append!(rhs, -x[i].*max(B[i],0) + (sum([x[i]*y*max(B[i],0)*F_ij(Ω,ω,h,B,g,i,j) for j in prey])))
+            else
+                append!(rhs, -x[i].*max(B[i],0) + (sum([x[i]*y*max(B[i],0)*F_ij(Ω,ω,h,B,g,i,j) for j in prey])) - (sum([x[j]*y*max(B[j],0)*F_ij(Ω,ω,h,B,g,j,i)/e[j,i] for j in predators])))
+            end
+        end
+    end
+    
+    eqs = d_eqs .~ rhs
 
-prob = ODEProblem(sys,init_B,[0,5000])
-sol = OrdinaryDiffEq.solve(prob,Vern9(), saveat = 0.1, abstol = 1e-10, reltol = 1e-10)
+    init_B = [get_prop(g,i,:B) for i in vertices(g)]
 
-println(length(findall(x->x>1e-9, sol[:,end])))
+    @named sys = ODESystem(eqs)
 
-# if 10 <= length(findall(x->x>1e-9, sol[:,end])) <= 20
-
-#     new_g = 
-#     new_init = sol[:,end]
-
-#     for i in eachindex(new_init)
-#         given_init = copy(new_init)
-#         given_init[i] = 0
-
-#         prob_extinct = ODEProblem(sys, given_init, [0,5000])
-#         sol
-
-
-# end
-
-
-# colors = [RGBA(0,0,0,1) for i in 1:5]
-
-# trophic_level = [round(i;digits=2) for i in get_trophic(g)]
-
-# top = findall(x->x == maximum(TL_vec), TL_vec)
-# bottom = findall(x->x == minimum(TL_vec), TL_vec)
-
-# colors[top] .= RGBA(1,0,0,1)
-# colors[bottom] .= RGBA(0,1,0,1)
-
-# graphplot(g, node_color = colors)
+    return g, init_B, sys
+end
 
 
+global n_nodes = 25
+global dxdr = 0.88
+global ω = 0.05
+global Z = 10
+global m = -0.25
+global y = 4
+global h = 1.2
+global β = 1.5
+global graph_number = 14
 
-#plot_graph(g)
+while true
+    global graph_number
+    global g
 
-#stat_test(25,3.85,10000)
+    g, init_B, sys = consumer_resource(n_nodes,β,dxdr,Z,m,y,h,ω,0.45,0.85)
 
+    prob = ODEProblem(sys,init_B,[0,5000])
+    sol = OrdinaryDiffEq.solve(prob,Vern9(), saveat = 0.1, abstol = 1e-10, reltol = 1e-10)
+
+    global living = findall(x -> x>1e-9, sol[:,end])
+    println(length(living))
+    if 10 <= length(living) <= 20
+        println("Graph has enough alive. Checking connectedness...")
+        copy_g = copy(SimpleDiGraph(g))
+        rem_vertices!(copy_g, vertices(g)[Not(living)])
+
+        if is_connected(copy_g)
+            println("Graph is connected! saving as graph_$graph_number")
+            new_g = MetaDiGraph(copy_g)
+            for (ind,i) in enumerate(living)
+                set_props!(new_g, ind, Dict(:B => sol[:,end][i]))
+            end
+            savegraph("network_control/saved_graphs/graph_$graph_number.lgz",new_g)
+            graph_number += 1
+        else
+            println("Failure. Graph is not connected.")
+        end
+    end
+
+    if graph_number > 100
+        break
+    end
+end
