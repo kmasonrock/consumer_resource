@@ -43,12 +43,31 @@ function test_dynamics(ns::NicheStruct)
     # e = get_assim_eff(ns.G, 0.85, 0.85)
     # x = get_x(0.597, 10, -0.25, get_trophic(ns.G))
     # sys, log_sys, B, t = dynamics_gen(ns.G, Ω, e, x, 0.5, 1.5, 10, 0.01)
-    p = cr_params(ns.G, Strong)
+    p = cr_params(ns.G, Hill)
 
     prob = ODEProblem(new_log_sean_cr!, log.(0.5*ones(nv(ns.G))), [0 5000], p)
-    sol = solve(prob, Vern9())
+    sol = solve(prob, Vern9(); verbose = false)
 
-    return ~any(x -> x < log(1e-8), sol[end])
+    if ~any(x -> x < log(1e-8), sol[end])
+        init_u0 = sol[end]
+    else
+        return false
+    end
+
+    for species in findall(x->x,@. !p.basal)
+        new_u0 = deepcopy(init_u0)
+        new_u0[species] = log(1e-8)
+
+        prob = ODEProblem(new_log_sean_cr!, new_u0, [0 5000], p)
+        sol = solve(prob,Vern9(); verbose = false)
+
+        if length(findall(x -> x > log(1e-8), sol[end])) == length(sol[end]) - 1
+            continue
+        else
+            return false
+        end
+    end
+    return true 
 end
 
 function bottum_up_niche(graph_size, basal_start, basal_limit, dyn_tol = 1000, enforce_size = true)
