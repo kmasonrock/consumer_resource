@@ -57,21 +57,6 @@ function get_Ω(g)
 end
 
 function get_trophic(g)
-    # New Version: As per Sean's code
-    # if nv(g) == 2
-    #     identity_m = Matrix(Diagonal(ones(nv(g))))
-
-    #     for i in [v for v in vertices(g)]
-
-    #         prey = indegree(g, i)
-    #         for j in inneighbors(g,i)
-    #             identity_m[i,j] = identity_m[i,j] - (1/prey)
-    #         end
-    #     end
-
-    #     return [round(i; digits = 2) for i in inv(identity_m)*ones(nv(g))]
-        
-    # else
         A = Matrix(adjacency_matrix(g))
         d = indegree(g)
         basal = findall(x -> x == 0, d)
@@ -81,48 +66,21 @@ function get_trophic(g)
         tl = inv(D - transpose(A))*(D*ones(nv(g)))
 
     return tl
-    # end
-
-    # Old version:
-    # Sean's code is better, because it can allow/
-    # for self-loops, and ours removes them. His is/
-    # done as seen above.
-
-    # copy_g = SimpleDiGraph(copy(g))
-    # n = nv(copy_g)
-    
-    # self_loops = simplecycles_limited_length(copy_g,1)
-
-    # for i in self_loops
-    #     rem_edge!(copy_g,i[1],i[1])
-    # end
-
-    # identity_m = Matrix(Diagonal(ones(n)))
-
-    # for i in [v for v in vertices(copy_g)]
-
-    #     prey = indegree(copy_g, i)
-    #     for j in inneighbors(copy_g,i)
-    #         identity_m[i,j] = identity_m[i,j] - (1/prey)
-    #     end
-    # end
-
-    # return [round(i; digits = 2) for i in inv(identity_m)*ones(n)]
 end 
 
 function F_ij(g,Ω,ω,h,prey,B,i,j)
     #return (Ω[i,j]*(max(B[j],0)^h))/(1 + ω*max(B[i],0) + sum(Ω[i,k]*(max(B[k],0) ^ h) for k in inneighbors(g,i)))
-    return (Ω[i,j]*(B[j][1]^h))/(1 + ω*B[i] + sum(Ω[i,k]*(B[k][1] ^ h) for k in prey[i]; init = 0))
+    return @views (Ω[i,j]*(B[j][1]^h))/(0.5^h + ω*B[i]*(0.5^h) + sum(Ω[i,k]*(B[k][1] ^ h) for k in prey[i]; init = 0))
 end
-
+ 
 function log_F_ij(g,Ω,ω,h,prey,B,i,j)
     #return (Ω[i,j]*(max(B[j],0)^h))/(1 + ω*max(B[i],0) + sum(Ω[i,k]*(max(B[k],0) ^ h) for k in inneighbors(g,i)))
-    return (Ω[i,j]*exp(h*B[j]))/(1 + ω*exp(B[i]) + sum(Ω[i,k]*exp(h*B[k]) for k in prey[i]; init = 0))
-end
+    return @views (Ω[i,j]*exp(h*B[j]))/(0.5^h + ω*exp(B[i])*0.5^h + sum(Ω[i,k]*exp(h*B[k]) for k in prey[i]; init = 0))
+end 
 
 
 function get_x(dxdr,Z,m,trophic)
-    return dxdr*(Z.^(trophic.-1)).^m
+    return dxdr*(Z.^(trophic)).^m
 end
 
 function get_node_params(β)
