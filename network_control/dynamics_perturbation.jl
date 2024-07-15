@@ -43,7 +43,7 @@ end
 
 @everywhere function system_evolve(func::ODEFunction{true}, init_vals::Matrix{Float64}, p::ModelParams, time_closest::Matrix{Int64},time_integrate::Matrix{Int64}, time_inc::Float64, target::Vector{Float64}, invader::Int64, max_iters::Int64)
     function get_distances(u, t)
-        return [sqrt(sum(i .- t)) for i in u]
+        return [sqrt(sum((i .- t).^2)) for i in u]
     end
 
     n = p.n
