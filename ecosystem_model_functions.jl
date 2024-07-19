@@ -68,14 +68,14 @@ function get_trophic(g)
     return tl
 end 
 
-function F_ij(g,Ω,ω,h,prey,B,i,j)
+function F_ij(g,Ω,ω,h,B0,prey,B,i,j)
     #return (Ω[i,j]*(max(B[j],0)^h))/(1 + ω*max(B[i],0) + sum(Ω[i,k]*(max(B[k],0) ^ h) for k in inneighbors(g,i)))
-    return @views (Ω[i,j]*(B[j][1]^h))/(0.5^h + ω*B[i]*(0.5^h) + sum(Ω[i,k]*(B[k][1] ^ h) for k in prey[i]; init = 0))
+    return @views (Ω[i,j]*(B[j][1]^h))/(B0^h + ω*B[i]*(B0^h) + sum(Ω[i,k]*(B[k][1] ^ h) for k in prey[i]; init = 0))
 end
  
-function log_F_ij(g,Ω,ω,h,prey,B,i,j)
+function log_F_ij(g,Ω,ω,h,B0,prey,B,i,j)
     #return (Ω[i,j]*(max(B[j],0)^h))/(1 + ω*max(B[i],0) + sum(Ω[i,k]*(max(B[k],0) ^ h) for k in inneighbors(g,i)))
-    return @views (Ω[i,j]*exp(h*B[j]))/(0.5^h + ω*exp(B[i])*0.5^h + sum(Ω[i,k]*exp(h*B[k]) for k in prey[i]; init = 0))
+    return @views (Ω[i,j]*exp(h*B[j]))/(B0^h + ω*exp(B[i])*B0^h + sum(Ω[i,k]*exp(h*B[k]) for k in prey[i]; init = 0))
 end 
 
 

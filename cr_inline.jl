@@ -15,6 +15,7 @@ struct CRParams{T <: Real}
     h::T
     y::T
     S::Union{T,Vector{T}}
+    B0::T
     n::Int64
     m::T
     pred::Vector{Vector{Int64}}
@@ -27,22 +28,22 @@ end
 
 
 
-function cr_params(g::SimpleDiGraph, allee_type::Type{Hill})
+function cr_params(g::SimpleDiGraph, allee_type::Type{Hill}, B0::Float64 = 0.5)
     Ω = get_Ω(g)
     e = get_assim_eff(g,0.85,0.85)
     x = get_x(0.597, 10, -0.25, get_trophic(g))
-    w = 0.5
-    h = 1.5
+    w = 0.0
+    h = 1.2
     y = 10.0
     S = 0.001
     n = nv(g)
     m = 1e-10
     pred,prey,basal = get_pred_and_prey(g)
 
-    return CRParams(g, Ω, e, x, w, h, y, S, n, m, pred, prey, basal, allee_type)
+    return CRParams(g, Ω, e, x, w, h, y, S, B0, n, m, pred, prey, basal, allee_type)
 end
 
-function cr_params(g::SimpleDiGraph, allee_type::Type{Strong})
+function cr_params(g::SimpleDiGraph, allee_type::Type{Strong}, B0::Float64 = 0.5)
     Ω = get_Ω(g)
     e = get_assim_eff(g,0.85,0.85)
     x = get_x(0.597, 10, -0.25, get_trophic(g))
@@ -54,10 +55,10 @@ function cr_params(g::SimpleDiGraph, allee_type::Type{Strong})
     m = 1e-10
     pred,prey,basal = get_pred_and_prey(g)
 
-    return CRParams(g, Ω, e, x, w, h, y, S, n, m, pred, prey, basal, allee_type)
+    return CRParams(g, Ω, e, x, w, h, y, S, B0, n, m, pred, prey, basal, allee_type)
 end
 
-function cr_params(g::SimpleDiGraph, allee_type::Type{Absent})
+function cr_params(g::SimpleDiGraph, allee_type::Type{Absent}, B0::Float64 = 0.5)
     Ω = get_Ω(g)
     e = get_assim_eff(g,0.85,0.85)
     x = get_x(0.597, 10, -0.25, get_trophic(g))
@@ -69,7 +70,7 @@ function cr_params(g::SimpleDiGraph, allee_type::Type{Absent})
     m = 1e-10
     pred,prey,basal = get_pred_and_prey(g)
 
-    return CRParams(g, Ω, e, x, w, h, y, S, n, m, pred, prey, basal, allee_type)
+    return CRParams(g, Ω, e, x, w, h, y, S, B0, n, m, pred, prey, basal, allee_type)
 end
 
 function cr_f(du,u,p,t)
@@ -97,7 +98,7 @@ end
 
 
 function cr_log_f(du, u, p, t)
-    @unpack g, Ω, e, x, w, h, y, S, n, m, allee = p
+    @unpack g, Ω, e, x, w, h, y, S, B0, n, m, pred, prey, basal,allee = p
 
     for i in 1:nv(g)
         if indegree(g,i) == 0
@@ -122,12 +123,12 @@ function cr_log_f(du, u, p, t)
     end
 end
 
-function ∂F_ij(g,Ω,w,h,n,prey,u,i,j,k)
-    @views return (i == k)*(j != k)*F_ij(g,Ω,w,h,prey,u,i,j)*((-w*0.5^h - h*Ω[i,i]*u[i]^(h-1))/(0.5^h + w*u[i]*0.5^h + sum(Ω[i,n]*u[n]^h for n in inneighbors(g,i); init = 0))) + (i != k)*(j == k)*(h/u[j])*F_ij(g,Ω,w,h,prey,u,i,j)*(1 - F_ij(g,Ω,w,h,prey,u,i,j)) - (i != k)*(j != k)*(h/u[k])*F_ij(g,Ω,w,h,prey,u,i,j)*F_ij(g,Ω,w,h,prey,u,i,k) - (i == k)*(j == k)*F_ij(g,Ω,w,h,prey,u,i,k)*(w*0.5^h/(0.5^h + w*u[i]*0.5^h +sum(Ω[i,n]*u[n]^h for n in inneighbors(g,i); init = 0)) + h/u[i] * (F_ij(g,Ω,w,h,prey,u,i,k) - 1))
+function ∂F_ij(g,Ω,w,h,B0,n,prey,u,i,j,k)
+    @views return (i == k)*(j != k)*F_ij(g,Ω,w,h,B0,prey,u,i,j)*((-w*B0^h - h*Ω[i,i]*u[i]^(h-1))/(B0^h + w*u[i]*B0^h + sum(Ω[i,n]*u[n]^h for n in inneighbors(g,i); init = 0))) + (i != k)*(j == k)*(h/u[j])*F_ij(g,Ω,w,h,B0,prey,u,i,j)*(1 - F_ij(g,Ω,w,h,B0,prey,u,i,j)) - (i != k)*(j != k)*(h/u[k])*F_ij(g,Ω,w,h,B0,prey,u,i,j)*F_ij(g,Ω,w,h,B0,prey,u,i,k) - (i == k)*(j == k)*F_ij(g,Ω,w,h,B0,prey,u,i,k)*(w*B0^h/(B0^h + w*u[i]*B0^h +sum(Ω[i,n]*u[n]^h for n in inneighbors(g,i); init = 0)) + h/u[i] * (F_ij(g,Ω,w,h,B0,prey,u,i,k) - 1))
 end
  
-function log_∂F_ij(g,Ω,w,h,n,prey,u,i,j,k)
-    @views return (i == k)*(j != k)*log_F_ij(g,Ω,w,h,prey,u,i,j)*((-w*exp(u[i])*0.5^h - h*Ω[i,i]*exp(h*u[i]))/(0.5^h + w*exp(u[i])*0.5^h + sum(Ω[i,n]*exp(h*u[n]) for n in inneighbors(g,i); init = 0))) + (i != k)*(j == k)*h*log_F_ij(g,Ω,w,h,prey,u,i,j)*(1 - log_F_ij(g,Ω,w,h,prey,u,i,j)) - (i != k)*(j != k)*h*log_F_ij(g,Ω,w,h,prey,u,i,j)log_F_ij(g,Ω,w,h,prey,u,i,k) + (i == k)*(j == k)*log_F_ij(g,Ω,w,h,prey,u,i,j)*(h - (w* 0.5^h *exp(u[i]) + h*Ω[i,i]*exp(h*u[i]))/(0.5^h+ w*exp(u[i])*0.5^h + sum(Ω[i,n]*exp(h*u[n]) for n in inneighbors(g,i))))
+function log_∂F_ij(g,Ω,w,h,B0,n,prey,u,i,j,k)
+    @views return (i == k)*(j != k)*log_F_ij(g,Ω,w,h,B0,prey,u,i,j)*((-w*exp(u[i])*B0^h - h*Ω[i,i]*exp(h*u[i]))/(B0^h + w*exp(u[i])*B0^h + sum(Ω[i,n]*exp(h*u[n]) for n in inneighbors(g,i); init = 0))) + (i != k)*(j == k)*h*log_F_ij(g,Ω,w,h,B0,prey,u,i,j)*(1 - log_F_ij(g,Ω,w,h,B0,prey,u,i,j)) - (i != k)*(j != k)*h*log_F_ij(g,Ω,w,h,B0,prey,u,i,j)log_F_ij(g,Ω,w,h,B0,prey,u,i,k) + (i == k)*(j == k)*log_F_ij(g,Ω,w,h,B0,prey,u,i,j)*(h - (w* B0^h *exp(u[i]) + h*Ω[i,i]*exp(h*u[i]))/(B0^h+ w*exp(u[i])*B0^h + sum(Ω[i,n]*exp(h*u[n]) for n in inneighbors(g,i))))
 end
  
 
@@ -150,9 +151,7 @@ function _time_test_sym(g, type::Union{Type{Hill}, Type{Strong}})
 end
 
 function cr_jac(J,u,p,t)
-    @unpack g,Ω,e,x,w,h,y,S,n,m,allee = p
-
-    n = Int(n)
+    @unpack g,Ω,e,x,w,h,y,S,B0,n,m,allee = p
 
     for i in eachindex(1:n)
         for j in eachindex(1:n)
@@ -161,34 +160,34 @@ function cr_jac(J,u,p,t)
                 if j == i
                     @views J[i,j] = 1 - 2*u[i]
                     for η in outneighbors(g,i)
-                        @views J[i,j] -= x[η]*y/e[η,i] * u[η]*∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)
+                        @views J[i,j] -= x[η]*y/e[η,i] * u[η]*∂F_ij(g,Ω,w,h,B0,n,u,η,i,j)
                     end
                 else
                     for η in outneighbors(g,i)
-                        @views J[i,j] -= x[η]*y/e[η,i]*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j))
+                        @views J[i,j] -= x[η]*y/e[η,i]*((η == j)*F_ij(g,Ω,w,h,u,η,i) + u[η]*∂F_ij(g,Ω,w,h,B0,n,prey,u,η,i,j))
                     end
                 end
             else
                 if j == i
                     @views J[i,j] = -x[i]
                     for η in inneighbors(g,i)
-                        @views J[i,j] += x[i]*y*(F_ij(g,Ω,w,h,u[1:n],i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u[1:n],i,η)*(S/(S + u[i])^2))
+                        @views J[i,j] += x[i]*y*(F_ij(g,Ω,w,h,u,i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,B0,n,prey,u,i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u,i,η)*(S/(S + u[i])^2))
                     end
                     for η in outneighbors(g,i)
-                        @views J[i,j] -= y*((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)))
+                        @views J[i,j] -= y*((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,prey,u,η,i,j)))
                     end
 
-                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
-                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u[1:n],i,η)*(S/(S + u[i])^2) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u[1:n],i,η)*(S/(S + u[i])^2) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
                     
                 else
                     for η in inneighbors(g,i)
                         @views J[i,j] += x[i]*y*u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i]))
                     end
                     for η in outneighbors(g,i)
-                        @views J[i,j] -= (x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j))
+                        @views J[i,j] -= (x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j))
                     end
-                    #@views J[i,j] = sum(x[i]*y*u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) for η in inneighbors(g,i); init = 0) - sum((x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = sum(x[i]*y*u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) for η in inneighbors(g,i); init = 0) - sum((x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
                 end
             end
         end
@@ -235,7 +234,7 @@ end
 
 
 function sean_cr(du,u,p,t)
-    @unpack g, Ω, e, x, w, h, y, S, n, m = p
+    @unpack g, Ω, e, x, w, h, y, S, B0, n, m, pred, prey, basal, allee = p
 
     for i in 1:nv(g)
         if indegree(g,i) == 0
@@ -262,7 +261,7 @@ function sean_cr(du,u,p,t)
 end
 
 function sean_cr_jac(J,u,p,t)
-    @unpack g,Ω,e,x,w,h,y,S,n,m = p
+    @unpack g,Ω,e,x,w,h,y,S,B0,n,m,pred,prey,basal,allee = p
 
     n = Int(n)
 
@@ -277,7 +276,7 @@ function sean_cr_jac(J,u,p,t)
                     end
                 else
                     for η in outneighbors(g,i)
-                        @views J[i,j] -= x[η]*y/e[η,i]*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j))
+                        @views J[i,j] -= x[η]*y/e[η,i]*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j))
                     end
                 end
             else
@@ -287,20 +286,20 @@ function sean_cr_jac(J,u,p,t)
                         @views J[i,j] += x[i]*y*(F_ij(g,Ω,w,h,u[1:n],i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u[1:n],i,η)*(S/(S + u[i])^2))
                     end
                     for η in outneighbors(g,i)
-                        @views J[i,j] -= y*((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)))
+                        @views J[i,j] -= y*((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)))
                     end
 
-                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
-                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u[1:n],i,η)*(S/(S + u[i])^2) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u[1:n],i,η)*(S/(S + u[i])^2) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
                     
                 else
                     for η in inneighbors(g,i)
                         @views J[i,j] += x[i]*y*u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i]))
                     end
                     for η in outneighbors(g,i)
-                        @views J[i,j] -= (x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j))
+                        @views J[i,j] -= (x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j))
                     end
-                    #@views J[i,j] = sum(x[i]*y*u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) for η in inneighbors(g,i); init = 0) - sum((x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = sum(x[i]*y*u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) for η in inneighbors(g,i); init = 0) - sum((x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
                 end
             end
         end
@@ -310,7 +309,7 @@ end
 
 
 function new_sean_cr!(du,u,p,t)
-    @unpack g,Ω,e,x,w,h,y,S,n,m, pred, prey, basal, allee_effect = p
+    @unpack g,Ω,e,x,w,h,y,S, B0,n,m, pred, prey, basal, allee_effect = p
     for i in 1:nv(g)
         if basal[i]
             du[i] = (1 - u[i])*(u[i] - m)*allee(u[i],S,allee_effect)
@@ -319,18 +318,18 @@ function new_sean_cr!(du,u,p,t)
         end
 
         for j in prey[i]
-            du[i] += x[i]*y*(u[i] - m)*allee(u[i],S,allee_effect)*F_ij(g,Ω,w,h,prey,u,i,j)
+            du[i] += x[i]*y*(u[i] - m)*allee(u[i],S,allee_effect)*F_ij(g,Ω,w,h,B0,prey,u,i,j)
         end
 
         for j in pred[i]
-            du[i] -= x[j]*y*((u[i] - m)/u[i])*u[j]*F_ij(g,Ω,w,h,prey,u,j,i)/e[j,i]
+            du[i] -= x[j]*y*((u[i] - m)/u[i])*u[j]*F_ij(g,Ω,w,h,B0,prey,u,j,i)/e[j,i]
         end
     end
     nothing
 end
 
 function new_log_sean_cr!(du,u,p,t)
-    @unpack g,Ω,e,x,w,h,y,S,n,m, pred, prey, basal, allee_effect = p
+    @unpack g,Ω,e,x,w,h,y,S, B0,n,m, pred, prey, basal, allee_effect = p
     for i in 1:n
         # if basal[i]
         #     @views du[i] = (1 - exp(u[i]))*(exp(u[i]) - m)*log_allee(exp(u[i]),S,allee_effect)
@@ -340,11 +339,11 @@ function new_log_sean_cr!(du,u,p,t)
         @views du[i] = basal[i]*(1 - exp(u[i]))*(exp(u[i]) - m)*log_allee(exp(u[i]),S,allee_effect) + !basal[i]*(-x[i]*(exp(u[i]) - m))
 
         for j in prey[i]
-            @views du[i] += x[i]*y*(exp(u[i]) - m)*log_allee(exp(u[i]),S,allee_effect)*log_F_ij(g,Ω,w,h,prey,u,i,j)
+            @views du[i] += x[i]*y*(exp(u[i]) - m)*log_allee(exp(u[i]),S,allee_effect)*log_F_ij(g,Ω,w,h,B0,prey,u,i,j)
         end
 
         for j in pred[i]
-            @views du[i] -= x[j]*y*((exp(u[i]) - m)/exp(u[i]))*exp(u[j])*log_F_ij(g,Ω,w,h,prey,u,j,i)/e[j,i]
+            @views du[i] -= x[j]*y*((exp(u[i]) - m)/exp(u[i]))*exp(u[j])*log_F_ij(g,Ω,w,h,B0,prey,u,j,i)/e[j,i]
         end
 
         @views du[i] = exp(-u[i])*du[i]
@@ -365,7 +364,7 @@ end
 #             end
 
 #             for η in inneighbors(g,i)
-#                 J[i,j] += y*x[i]*((∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j) + ∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j))*allee(u[i],S,allee) + (j == i)*(u[i] - m)*F_ij(g,Ω,w,h,u[1:n],i,η)*∂allee(u[i],S,allee) + (i == j)*F_ij(g,Ω,w,h,u[1:n],i,η)*allee(u[i],S,allee))
+#                 J[i,j] += y*x[i]*((∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j) + ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j))*allee(u[i],S,allee) + (j == i)*(u[i] - m)*F_ij(g,Ω,w,h,u[1:n],i,η)*∂allee(u[i],S,allee) + (i == j)*F_ij(g,Ω,w,h,u[1:n],i,η)*allee(u[i],S,allee))
 #             end
 
 #             for η in outneighbors(g,i)
@@ -378,7 +377,7 @@ end
 
 
 function new_sean_jac!(J,u,p,t)
-    @unpack g,Ω,e,x,w,h,y,S,n,m,pred,prey,basal,allee_effect = p
+    @unpack g,Ω,e,x,w,h,y,S,B0,n,m,pred,prey,basal,allee_effect = p
 
     n = Int(n)
 
@@ -389,34 +388,34 @@ function new_sean_jac!(J,u,p,t)
                 if j == i
                     J[i,j] = (1 - u[i])*(u[i] - m)*∂allee(u[i],S,allee_effect) + (1 - u[i])*allee(u[i],S,allee_effect) - (u[i] - m)*allee(u[i],S,allee_effect)
                     for η in pred[i]
-                        J[i,j] -= x[η]*y*u[η]/(u[i]*e[η,i]) * ((u[i] - m)*(∂F_ij(g,Ω,w,h,n,prey,u[1:n],η,i,j) - F_ij(g,Ω,w,h,prey,u[1:n],η,i)/u[i]) + F_ij(g,Ω,w,h,prey,u[1:n],η,i))
+                        J[i,j] -= x[η]*y*u[η]/(u[i]*e[η,i]) * ((u[i] - m)*(∂F_ij(g,Ω,w,h,B0,n,prey,u[1:n],η,i,j) - F_ij(g,Ω,w,h,B0,prey,u[1:n],η,i)/u[i]) + F_ij(g,Ω,w,h,B0,prey,u[1:n],η,i))
                     end
                 else
                     for η in pred[i]
-                        J[i,j] -= (y*x[η]*(u[i] - m)/(u[i]*e[η,i])) * (∂F_ij(g,Ω,w,h,n,prey,u[1:n],η,i,j)*u[η] + (j == η)*F_ij(g,Ω,w,h,prey,u[1:n],η,i))
+                        J[i,j] -= (y*x[η]*(u[i] - m)/(u[i]*e[η,i])) * (∂F_ij(g,Ω,w,h,B0,n,prey,u[1:n],η,i,j)*u[η] + (j == η)*F_ij(g,Ω,w,h,B0,prey,u[1:n],η,i))
                     end
                 end
             else
                 if j == i
                     J[i,j] = -x[i]
                     for η in prey[i]
-                        J[i,j] += y*x[i]*((u[i] - m)*(∂F_ij(g,Ω,w,h,n,prey,u[1:n],i,η,j)*allee(u[i],S,allee_effect) + F_ij(g,Ω,w,h,prey,u[1:n],i,η)*∂allee(u[i],S,allee_effect)) + F_ij(g,Ω,w,h,prey,u[1:n],i,η)*allee(u[i],S,allee_effect))
+                        J[i,j] += y*x[i]*((u[i] - m)*(∂F_ij(g,Ω,w,h,B0,n,prey,u[1:n],i,η,j)*allee(u[i],S,allee_effect) + F_ij(g,Ω,w,h,B0,prey,u[1:n],i,η)*∂allee(u[i],S,allee_effect)) + F_ij(g,Ω,w,h,B0,prey,u[1:n],i,η)*allee(u[i],S,allee_effect))
                     end
                     for η in pred[i]
-                        J[i,j] -=  (x[η]*y/(u[i]*e[η,i]))*(u[η]*((u[i] - m)*(∂F_ij(g,Ω,w,h,n,prey,u[1:n],η,i,j) - F_ij(g,Ω,w,h,prey,u[1:n],η,i)/u[i]) + F_ij(g,Ω,w,h,prey,u[1:n],η,i)) + (j == η)*(u[i] - m)*F_ij(g,Ω,w,h,prey,u[1:n],η,i))
+                        J[i,j] -=  (x[η]*y/(u[i]*e[η,i]))*(u[η]*((u[i] - m)*(∂F_ij(g,Ω,w,h,B0,n,prey,u[1:n],η,i,j) - F_ij(g,Ω,w,h,B0,prey,u[1:n],η,i)/u[i]) + F_ij(g,Ω,w,h,B0,prey,u[1:n],η,i)) + (j == η)*(u[i] - m)*F_ij(g,Ω,w,h,B0,prey,u[1:n],η,i))
                     end
 
-                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
-                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u[1:n],i,η)*(S/(S + u[i])^2) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u[1:n],i,η)*(S/(S + u[i])^2) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
                     
                 else
                     for η in prey[i]
-                        J[i,j] +=  y*x[i]*((u[i] - m)*∂F_ij(g,Ω,w,h,n,prey,u[1:n],i,η,j)*allee(u[i],S,allee_effect) + (i == η)*((u[i] - m)*F_ij(g,Ω,w,h,prey,u[1:n],i,η)*∂allee(u[i],S,allee_effect) + F_ij(g,Ω,w,h,prey,u[1:n],i,η)*allee(u[i],S,allee_effect)))
+                        J[i,j] +=  y*x[i]*((u[i] - m)*∂F_ij(g,Ω,w,h,B0,n,prey,u[1:n],i,η,j)*allee(u[i],S,allee_effect) + (i == η)*((u[i] - m)*F_ij(g,Ω,w,h,B0,prey,u[1:n],i,η)*∂allee(u[i],S,allee_effect) + F_ij(g,Ω,w,h,B0,prey,u[1:n],i,η)*allee(u[i],S,allee_effect)))
                     end
                     for η in pred[i]
-                        J[i,j] -= (x[η]*y/(u[i]*e[η,i]))*(u[η]*(∂F_ij(g,Ω,w,h,n,prey,u[1:n],η,i,j)*(u[i] - m)) + (i == η)*(F_ij(g,Ω,w,h,prey,u[1:n],η,i)*u[η] - (u[i] - m)*F_ij(g,Ω,w,h,prey,u[1:n],η,i)/u[i]) + (j == η)*(u[i] - m)*F_ij(g,Ω,w,h,prey,u[1:n],η,i))
+                        J[i,j] -= (x[η]*y/(u[i]*e[η,i]))*(u[η]*(∂F_ij(g,Ω,w,h,B0,n,prey,u[1:n],η,i,j)*(u[i] - m)) + (i == η)*(F_ij(g,Ω,w,h,B0,prey,u[1:n],η,i)*u[η] - (u[i] - m)*F_ij(g,Ω,w,h,B0,prey,u[1:n],η,i)/u[i]) + (j == η)*(u[i] - m)*F_ij(g,Ω,w,h,B0,prey,u[1:n],η,i))
                     end
-                    #@views J[i,j] = sum(x[i]*y*u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) for η in inneighbors(g,i); init = 0) - sum((x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = sum(x[i]*y*u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) for η in inneighbors(g,i); init = 0) - sum((x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
                 end
             end
         end
@@ -425,45 +424,45 @@ function new_sean_jac!(J,u,p,t)
 end
 
 function new_log_sean_jac!(J, u, p, t)
-    @unpack g,Ω,e,x,w,h,y,S,n,m, pred, prey, basal, allee_effect = p
+    @unpack g,Ω,e,x,w,h,y,S,B0,n,m, pred, prey, basal, allee_effect = p
 
     for i in eachindex(1:nv(g))
         for j in eachindex(1:nv(g))
             @views J[i,j] = 0
             if basal[i]
                 if j == i
-                    @views J[i,j] -= (1 - exp(u[i]))*(exp(u[i]) - m)*log_allee(u[i],S,allee_effect) - sum(y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[η])*x[η]/e[η,i] for η in outneighbors(g,i))
+                    @views J[i,j] -= (1 - exp(u[i]))*(exp(u[i]) - m)*log_allee(u[i],S,allee_effect) - sum(y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,B0,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[η])*x[η]/e[η,i] for η in outneighbors(g,i))
                     @views J[i,j] += (1 - exp(u[i]))*(exp(u[i]) - m)*∂log_allee(u[i],S,allee_effect) + (1 - exp(u[i]))*log_allee(u[i],S,allee_effect)*exp(u[i]) - (exp(u[i]) - m)*log_allee(u[i],S,allee_effect)*exp(u[i])
                     for η in pred[i]
-                        @views J[i,j] -= (y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,n,prey,u[1:nv(g)],η,i,j)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) - (y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) + (y*log_F_ij(g,Ω,w,h,prey,u[1:nv(g)],η,i)*exp(u[η])*x[η]/e[η,i])
+                        @views J[i,j] -= (y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,B0,n,prey,u,i,j,k)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) - (y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,B0,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) + (y*log_F_ij(g,Ω,w,h,B0,prey,u[1:nv(g)],η,i)*exp(u[η])*x[η]/e[η,i])
                     end
                 else
                     for η in pred[i]
-                        @views J[i,j] -= (y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,n,prey,u[1:nv(g)],η,i,j)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) + (j == η)*(y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[j])*x[η]/e[η,i])
+                        @views J[i,j] -= (y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,B0,n,prey,u,i,j,k)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) + (j == η)*(y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,B0,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[j])*x[η]/e[η,i])
                     end
                 end
             else
                 if j == i
-                    @views J[i,j] -= (-x[i]*(exp(u[i]) - m)) + sum(y*(exp(u[i]) - m)*log_allee(u[i],S,allee_effect)*log_F_ij(g,Ω,w,h,prey,u[1:nv(g)],i,η)*x[i] for η in inneighbors(g,i); init = 0) - sum(y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[η])*x[η]/e[η,i] for η in outneighbors(g,i); init  = 0)
+                    @views J[i,j] -= (-x[i]*(exp(u[i]) - m)) + sum(y*(exp(u[i]) - m)*log_allee(u[i],S,allee_effect)*log_F_ij(g,Ω,w,h,B0,prey,u[1:nv(g)],i,η)*x[i] for η in inneighbors(g,i); init = 0) - sum(y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,B0,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[η])*x[η]/e[η,i] for η in outneighbors(g,i); init  = 0)
                     @views J[i,j] += (-x[i]*exp(u[i]))
                     for η in prey[i]
-                        @views J[i,j] += y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,n,prey,u[1:nv(g)],i,η,j)*log_allee(u[i],S,allee_effect)*x[i] + y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,prey,u[1:nv(g)],i,η)*∂log_allee(u[i],S,allee_effect)*x[i] + y*log_allee(u[i],S,allee_effect)*log_F_ij(g,Ω,w,h,prey,u[1:nv(g)],i,η)*exp(u[i])*x[i]
+                        @views J[i,j] += y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,B0,n,prey,u[1:nv(g)],i,η,j)*log_allee(u[i],S,allee_effect)*x[i] + y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,B0,prey,u[1:nv(g)],i,η)*∂log_allee(u[i],S,allee_effect)*x[i] + y*log_allee(u[i],S,allee_effect)*log_F_ij(g,Ω,w,h,B0,prey,u[1:nv(g)],i,η)*exp(u[i])*x[i]
                     end
                     for η in pred[i]
-                        @views J[i,j] -= (y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,n,prey,u[1:nv(g)],η,i,j)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) - (y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) + (y*log_F_ij(g,Ω,w,h,prey,u[1:nv(g)],η,i)*exp(u[η])*x[η]/e[η,i] + (η == j)*(y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]))
+                        @views J[i,j] -= (y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,B0,n,prey,u,i,j,k)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) - (y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,B0,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) + (y*log_F_ij(g,Ω,w,h,B0,prey,u[1:nv(g)],η,i)*exp(u[η])*x[η]/e[η,i] + (η == j)*(y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,B0,prey,u[1:nv(g)],η,i)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]))
                     end
 
-                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
-                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u[1:n],i,η)*(S/(S + u[i])^2) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u[1:n],i,η)*(S/(S + u[i])^2) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
                     
                 else
                     for η in prey[i]
-                        @views J[i,j] += y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,n,prey,u[1:nv(g)],i,η,j)*log_allee(u[i],S,allee_effect)*x[i]
+                        @views J[i,j] += y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,B0,n,prey,u[1:nv(g)],i,η,j)*log_allee(u[i],S,allee_effect)*x[i]
                     end
                     for η in pred[i]
-                        @views J[i,j] -= (y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,n,prey,u[1:nv(g)],η,i,j)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) + (j == η)*(y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,prey, u[1:nv(g)],η,i)*exp(-u[i])*exp(u[j])*x[η]/e[η,i])
+                        @views J[i,j] -= (y*(exp(u[i]) - m)*log_∂F_ij(g,Ω,w,h,B0,n,prey,u,i,j,k)*exp(-u[i])*exp(u[η])*x[η]/e[η,i]) + (j == η)*(y*(exp(u[i]) - m)*log_F_ij(g,Ω,w,h,B0,prey, u[1:nv(g)],η,i)*exp(-u[i])*exp(u[j])*x[η]/e[η,i])
                     end
-                    #@views J[i,j] = sum(x[i]*y*u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) for η in inneighbors(g,i); init = 0) - sum((x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = sum(x[i]*y*u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) for η in inneighbors(g,i); init = 0) - sum((x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
                 end
             end
         @views J[i,j] = J[i,j]*exp(-u[i])
