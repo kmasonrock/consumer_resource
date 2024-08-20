@@ -1,178 +1,100 @@
-using DifferentialEquations, ModelingToolkit
 using OrdinaryDiffEq
-using DynamicalSystems
-using Symbolics
-using PyPlot
-using LinearAlgebra
-using Graphs
-using Colors
-using GraphPlot
-using InvertedIndices
-include("/Users/kmrock/Documents/network_control_project/network_control/DynamicsControl.jl")
-include("/Users/kmrock/Documents/network_control_project/network_control/network_gen.jl")
 
-# mutable struct Params
-#     graph:: MetaDiGraph
 
-# end
-
-# function consumer_resource(du,u,p,t)
-
-function get_assim_eff(g, herb, carn)
-    basal = findall(x->x==0, indegree(g))
-
-    e = zeros(length(vertices(g)),length(vertices(g)))
-
-    for edge in edges(g)
-        if indexin(edge.src,basal)[1] !== nothing
-            e[edge.dst,edge.src] = herb
+function cr_f!(du,u,p,t)
+    @unpack g,Ω,e,x,w,h,y,S, B0,n,m, dummy,pred, prey, basal, allee_effect = p
+    m_term = dummy
+    prey_term = dummy
+    pred_term = dummy
+    @. m_term = (u - m)
+    for i in 1:nv(g)
+        if basal[i]
+            du[i] = (1 - u[i])*(u[i] - m)#*allee(u[i],S,allee_effect)
         else
-            e[edge.dst,edge.src] = carn
+            du[i] = -x[i]*(u[i] - m)
+        end
+
+        prey_term = zero(eltype(du))
+        for j in prey[i]
+            prey_term += _F_ij(u,p,i,j)
+        end
+        prey_term *= x[i]*y*(u[i] - m)*allee(u[i],S,allee_effect)
+
+        for j in pred[i]
+            pred_term[i] -= x[j]*y*((u[i] - m)/u[i])*u[j]*_F_ij(u,p,j,i)/e[j,i]
         end
     end
 
-    return e
+    du .= prey_term .+ pred_term
+    nothing
 end
 
-function get_Ω(g)
-    Ω = zeros(length(vertices(g)),length(vertices(g)))
-    basal = findall(x->x==0, indegree(g))
-    for i in [j for j in 1:length(vertices(g))][Not(basal)]
-        for j in inneighbors(g,i)
-            Ω[i,j] = 1/indegree(g,i)
-        end
-    end
+function cr_jac!(J,u,p,t)
+    @unpack g,Ω,e,x,w,h,y,S,B0,n,m,pred,prey,basal,allee_effect = p
 
-    return Ω
-end
+    n = Int(n)
 
-
-function get_trophic(g)
-
-    copy_g = SimpleDiGraph(copy(g))
-
-    self_loops = simplecycles_limited_length(copy_g,1)
-
-    for i in self_loops
-        rem_edge!(copy_g,i[1],i[1])
-    end
-
-    identity_m = Matrix(Diagonal(ones(length(vertices(copy_g)))))
-
-
-    for i in [v for v in vertices(copy_g)]
-    prey = indegree(copy_g,i)
-
-        for j in inneighbors(copy_g,i)
-            identity_m[i,j] = identity_m[i,j] - (1/prey)
-        end
-    end
-
-
-    return [round(i; digits = 2) for i in inv(identity_m)*ones(length(vertices(copy_g)))]
-
-end
-
-function F_ij(Ω,ω,h,B,g,i,j)
-    return (Ω[i,j]*(max(B[j],0) ^ h))/(1 + ω*max(B[i],0) + sum([Ω[i,k]*(max(B[k],0) ^ h) for k in inneighbors(g,i)]))
-end
-
-
-function get_x(dxdr,Z,m,trophic)
-    return dxdr*(Z.^(trophic .- 1)).^m
-end
-
-function consumer_resource(n_nodes,β,dxdr,Z,m,y,h,ω,herb,carn)
-    pars = @parameters t
-    vars = Symbolics.@variables B[1:n_nodes](t)
-    graph_failed = true
-
-    while graph_failed
-        try
-            global g = niche_model_graph(n_nodes,β)
-            global x = get_x(dxdr,Z,m,get_trophic(g))
-            graph_failed = false
-            println("Graph is generated")
-        catch
-            println("Failed to generate. Trying again...")
-            graph_failed = true
-        end
-    end
-    
-    Ω = get_Ω(g)
-    e = get_assim_eff(g,herb,carn)
-    D = Differential(t)
-
-    d_eqs = [Bi for Bi in B]
-
-    d_eqs = D.(d_eqs)
-    rhs = []
-    for i in 1:n_nodes
-    
-        prey = inneighbors(g,i)
-        predators = outneighbors(g,i)
-        if indegree(g,i) == 0
-    
-            append!(rhs, (1-max(B[i],0))*max(B[i],0) - (sum([x[j]*y*max(B[j],0)*F_ij(Ω,ω,h,B,g,j,i)/e[j,i] for j in predators])))
-        else
-            if predators == []
-                append!(rhs, -x[i].*max(B[i],0) + (sum([x[i]*y*max(B[i],0)*F_ij(Ω,ω,h,B,g,i,j) for j in prey])))
+    for i in eachindex(1:nv(g))
+        for j in eachindex(1:nv(g))
+            J[i,j] = 0
+            if basal[i]
+                if j == i
+                    #(1 - u[i])*(u[i] - m)*∂allee(u[i],S,allee_effect) + (1 - u[i])*allee(u[i],S,allee_effect) - (u[i] - m)*allee(u[i],S,allee_effect)
+                    J[i,j] = (1 - u[i]) - (u[i] - m)
+                    for η in pred[i]
+                        J[i,j] -= x[η]*y*u[η]/(u[i]*e[η,i]) * ((u[i] - m)*(_∂F_ij(u,p,η,i,j) - _F_ij(u,p,η,i)/u[i]) + _F_ij(u,p,η,i))
+                    end
+                else
+                    for η in pred[i]
+                        J[i,j] -= (y*x[η]*(u[i] - m)/(u[i]*e[η,i])) * (_∂F_ij(u,p,η,i,j)*u[η] + (j == η)*_F_ij(u,p,η,i))
+                    end
+                end
             else
-                append!(rhs, -x[i].*max(B[i],0) + (sum([x[i]*y*max(B[i],0)*F_ij(Ω,ω,h,B,g,i,j) for j in prey])) - (sum([x[j]*y*max(B[j],0)*F_ij(Ω,ω,h,B,g,j,i)/e[j,i] for j in predators])))
+                if j == i
+                    J[i,j] = -x[i]
+                    for η in prey[i]
+                        J[i,j] += y*x[i]*((u[i] - m)*(_∂F_ij(u,p,i,η,j)*allee(u[i],S,allee_effect) + _F_ij(u,p,i,η)*∂allee(u[i],S,allee_effect)) + _F_ij(u,p,i,η)*allee(u[i],S,allee_effect))
+                    end
+                    for η in pred[i]
+                        J[i,j] -=  (x[η]*y/(u[i]*e[η,i]))*(u[η]*((u[i] - m)*(_∂F_ij(u,p,η,i,j) - _F_ij(u,p,η,i)/u[i]) + _F_ij(u,p,η,i)) + (j == η)*(u[i] - m)*_F_ij(u,p,η,i))
+                    end
+
+                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    #@views J[i,j] = -x[i] + x[i]*y*sum(F_ij(g,Ω,w,h,u[1:n],i,η)*(u[i]/(u[i] + S)) + u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) + u[i]*F_ij(g,Ω,w,h,u[1:n],i,η)*(S/(S + u[i])^2) for η in inneighbors(g,i); init = 0) - y*sum((x[η]/e[η,i]) *((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η] * ∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                    
+                else
+                    for η in prey[i]
+                        J[i,j] +=  y*x[i]*((u[i] - m)*_∂F_ij(u,p,i,η,j)*allee(u[i],S,allee_effect) + (i == η)*((u[i] - m)*_F_ij(u,p,i,η)*∂allee(u[i],S,allee_effect) + _F_ij(u,p,i,η)*allee(u[i],S,allee_effect)))
+                    end
+                    for η in pred[i]
+                        J[i,j] -= (x[η]*y/(u[i]*e[η,i]))*(u[η]*(_∂F_ij(u,p,η,i,j)*(u[i] - m)) + (i == η)*(_F_ij(u,p,η,i)*u[η] - (u[i] - m)*_F_ij(u,p,η,i)/u[i]) + (j == η)*(u[i] - m)*_F_ij(u,p,η,i))
+                    end
+                    #@views J[i,j] = sum(x[i]*y*u[i]*∂F_ij(g,Ω,w,h,n,u[1:n],i,η,j)*(u[i]/(S + u[i])) for η in inneighbors(g,i); init = 0) - sum((x[η]*y/e[η,i])*((η == j)*F_ij(g,Ω,w,h,u[1:n],η,i) + u[η]*∂F_ij(g,Ω,w,h,B0,n,u[1:n],η,i,j)) for η in outneighbors(g,i); init = 0)
+                end
             end
         end
     end
-    
-    eqs = d_eqs .~ rhs
 
-    init_B = [get_prop(g,i,:B) for i in vertices(g)]
-
-    @named sys = ODESystem(eqs)
-
-    return g, init_B, sys
+    nothing
 end
 
+function log_cr_f!(du, u , p, t)
+    # want to do something like 
+    # x = p.x
+    # @. x = exp(u)
+    # this allocates
+    cr_f!(du, exp.(u), p, t)
+    @. du *= exp(-u)
+    nothing
+end
 
-global n_nodes = 25
-global dxdr = 0.88
-global ω = 0.05
-global Z = 10
-global m = -0.25
-global y = 4
-global h = 1.2
-global β = 1.5
-global graph_number = 14
-
-while true
-    global graph_number
-    global g
-
-    g, init_B, sys = consumer_resource(n_nodes,β,dxdr,Z,m,y,h,ω,0.45,0.85)
-
-    prob = ODEProblem(sys,init_B,[0,5000])
-    sol = OrdinaryDiffEq.solve(prob,Vern9(), saveat = 0.1, abstol = 1e-10, reltol = 1e-10)
-
-    global living = findall(x -> x>1e-9, sol[:,end])
-    println(length(living))
-    if 10 <= length(living) <= 20
-        println("Graph has enough alive. Checking connectedness...")
-        copy_g = copy(SimpleDiGraph(g))
-        rem_vertices!(copy_g, vertices(g)[Not(living)])
-
-        if is_connected(copy_g)
-            println("Graph is connected! saving as graph_$graph_number")
-            new_g = MetaDiGraph(copy_g)
-            for (ind,i) in enumerate(living)
-                set_props!(new_g, ind, Dict(:B => sol[:,end][i]))
-            end
-            savegraph("network_control/saved_graphs/graph_$graph_number.lgz",new_g)
-            graph_number += 1
-        else
-            println("Failure. Graph is not connected.")
+function log_cr_jac!(J, u, p, t)
+    # the exp.(u) allocates
+    cr_jac!(J, exp.(u), p, t)
+    for i in 1:p.n
+        for j in 1:p.n
+            J[i,j] = exp(-u[i]) * exp(u[j]) * J[i,j]
         end
     end
-
-    if graph_number > 100
-        break
-    end
 end
+
